@@ -50,8 +50,11 @@ In full consideration for the Services provided, the Client agrees to transfer t
 *   **Developer:** Responsible for all coding, design implementation, CMS setup, and ensuring the site meets modern web standards (speed, accessibility).
 *   **Client:** Responsible for providing high-quality images of inventory, dealership logo files, and purchasing the domain name (URL) and hosting subscription (if applicable).
 
-## 6. INTELLECTUAL PROPERTY
-The Developer hereby assigns to the Client all right, title, and interest in the custom code, design, and content of the website, effective immediately. This assignment covers the Work in its current state ("As-Is") and includes all future modifications and the final version of the website ("Final Deliverable"). The Developer retains the right to use the work in their professional portfolio.
+## 6. INTELLECTUAL PROPERTY (LICENSING)
+*   **Ownership:** The Developer retains all right, title, and interest in and to the underlying source code, software architecture, and "AI" tools developed for the website ("Developer Tools").
+*   **License Grant:** Upon receipt of the Exchange Vehicle, the Developer grants the Client a perpetual, non-exclusive, royalty-free license to use, display, and modify the website for the purpose of operating their car dealership business.
+*   **Client Content:** The Client retains full ownership of their specific data, including vehicle photos, descriptions, customer lists, and branding elements (logos/trademarks).
+*   **Resale Rights:** The Client may not resell, redistribute, or license the underlying website code to other dealerships or entities without the express written permission of the Developer. The Developer reserves the right to reuse the core code and architecture for other clients.
 
 ## 7. TERMINATION AND FAILURE TO DELIVER
 *   **By Developer (Failure to Deliver):** If the Developer fails to deliver the fully functional website by the Deadline (14 days), the Developer is in breach of contract. In such an event, the Developer must **immediately return the Exchange Vehicle** to the Client in the same condition as received (normal wear and tear excepted) OR pay the Client the Agreed Value ($[Dollar Amount]) in cash within 5 business days.

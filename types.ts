@@ -17,8 +17,9 @@ export interface Vehicle {
   bodyStyle: BodyStyle;
   images: string[];
   featured: boolean;
-  description?: string; // New field for custom seller notes
-  features?: string[];  // New field for specific features (e.g. "Heated Seats")
+  description?: string; 
+  features?: string[];
+  status?: 'Available' | 'Pending' | 'Sold'; // New field
   specs: {
     engine: string;
     drivetrain: string;
@@ -31,7 +32,9 @@ export interface Vehicle {
   };
 }
 
-export type LeadType = 'Contact' | 'Test Drive';
+export type LeadType = 'Contact' | 'Test Drive' | 'Newsletter';
+
+export type LeadStatus = 'New' | 'Contacted' | 'Confirmed' | 'Archived';
 
 export interface Lead {
   id: number;
@@ -40,7 +43,7 @@ export interface Lead {
   email: string;
   phone: string;
   dateSubmitted: string; // ISO String
-  status: 'New' | 'Read';
+  status: LeadStatus;
   // Contact Form Specifics
   message?: string;
   // Test Drive Specifics

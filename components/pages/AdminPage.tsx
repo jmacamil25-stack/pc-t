@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import { Vehicle, BodyStyle, Lead } from '../../types';
 import Button from '../ui/Button';
@@ -8,7 +9,7 @@ import {
     Car, Upload, Image as ImageIcon, Loader2, AlertTriangle, 
     MessageSquare, Calendar, Inbox, Check, Wand2, Tag,
     LayoutDashboard, DollarSign, TrendingUp, Users, BarChart3,
-    ArrowRight, Clock, CheckCircle
+    ArrowRight, ArrowLeft, Clock, CheckCircle, Download, FileJson, Mail, PhoneCall, UserPlus
 } from 'lucide-react';
 
 // Helper for image compression
@@ -46,8 +47,11 @@ const compressImage = (file: File): Promise<string> => {
 
 // --- SUB-COMPONENTS ---
 
-const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode; trend?: string; color?: string }> = ({ title, value, icon, trend, color = "bg-blue-500" }) => (
-  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-start justify-between hover:shadow-md transition-shadow">
+const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode; trend?: string; color?: string; onClick?: () => void }> = ({ title, value, icon, trend, color = "bg-blue-500", onClick }) => (
+  <div 
+    onClick={onClick}
+    className={`bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-start justify-between transition-all ${onClick ? 'cursor-pointer hover:shadow-md hover:scale-[1.02]' : 'hover:shadow-md'}`}
+  >
     <div>
       <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
       <h3 className="text-2xl font-bold text-gray-900">{value}</h3>
@@ -79,6 +83,7 @@ const AdminPage: React.FC = () => {
     make: '', model: '', year: new Date().getFullYear(), price: 0, mileage: 0,
     bodyStyle: BodyStyle.SEDAN, images: [], featured: false,
     description: '', features: [],
+    status: 'Available',
     specs: {
       engine: '', drivetrain: '', transmission: '', trim: '', vin: '',
       exteriorColor: '', interiorColor: '', horsepower: 0
@@ -88,6 +93,11 @@ const AdminPage: React.FC = () => {
 
   // Leads State
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [isAddingLead, setIsAddingLead] = useState(false);
+  const [newLeadData, setNewLeadData] = useState({ name: '', phone: '', email: '', type: 'Contact', notes: '' });
+
+  // Backup State
+  const backupInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const checkAuth = localStorage.getItem('admin_auth');
@@ -131,11 +141,65 @@ const AdminPage: React.FC = () => {
   };
 
   // --- STATS CALCULATION ---
-  const totalValue = vehicles.reduce((sum, v) => sum + v.price, 0);
-  const avgPrice = vehicles.length > 0 ? totalValue / vehicles.length : 0;
+  const totalValue = vehicles.filter(v => v.status !== 'Sold').reduce((sum, v) => sum + v.price, 0);
+  const soldVehicles = vehicles.filter(v => v.status === 'Sold').length;
+  const avgPrice = vehicles.length > 0 ? totalValue / (vehicles.length - soldVehicles || 1) : 0;
   const totalLeads = leads.length;
+  const newLeadsCount = leads.filter(l => l.status === 'New').length;
   const recentLeads = leads.slice(0, 5); // First 5
   
+  // Split Leads
+  const testDrives = leads.filter(l => l.type === 'Test Drive');
+  const inquiries = leads.filter(l => l.type !== 'Test Drive');
+
+  // --- BACKUP & RESTORE HANDLERS ---
+  const handleBackup = () => {
+    const data = {
+      vehicles,
+      leads,
+      timestamp: new Date().toISOString(),
+      version: '1.0'
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pacific-cars-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        setIsLoading(true);
+        const json = event.target?.result as string;
+        const data = JSON.parse(json);
+        
+        if (!data.vehicles || !Array.isArray(data.vehicles)) throw new Error("Invalid backup file format");
+
+        localStorage.setItem('pacific_cars_inventory_v1', JSON.stringify(data.vehicles));
+        if (data.leads) localStorage.setItem('pacific_cars_leads_v1', JSON.stringify(data.leads));
+        
+        alert("Database restored successfully!");
+        loadData();
+      } catch (err) {
+        alert("Failed to restore backup. Invalid file.");
+        console.error(err);
+      } finally {
+        setIsLoading(false);
+        if (backupInputRef.current) backupInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   // --- INVENTORY HANDLERS ---
 
   const handleDelete = async (id: number) => {
@@ -145,11 +209,19 @@ const AdminPage: React.FC = () => {
     }
   };
 
+  const handleToggleSold = async (vehicle: Vehicle) => {
+      const newStatus = vehicle.status === 'Sold' ? 'Available' : 'Sold';
+      const updatedVehicle = { ...vehicle, status: newStatus as 'Available' | 'Sold' };
+      await api.updateVehicle(updatedVehicle);
+      loadData();
+  };
+
   const handleEdit = (vehicle: Vehicle) => {
     setCurrentVehicle({
         ...vehicle,
         description: vehicle.description || '',
-        features: vehicle.features || []
+        features: vehicle.features || [],
+        status: vehicle.status || 'Available'
     });
     setIsEditing(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -316,18 +388,54 @@ const AdminPage: React.FC = () => {
   };
 
   // --- LEADS HANDLERS ---
+  const handleLeadStatusChange = async (lead: Lead, newStatus: 'Contacted' | 'Confirmed') => {
+      const updatedLead = { ...lead, status: newStatus };
+      await api.updateLead(updatedLead);
+      loadData();
+  };
+
   const handleDeleteLead = async (id: number) => {
-    if (window.confirm('Archive this message?')) {
+    if (window.confirm('Delete this lead permanently?')) {
         await api.deleteLead(id);
         loadData();
     }
+  };
+
+  const handleAddManualLead = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsLoading(true);
+      try {
+          await api.submitContactForm({
+              name: newLeadData.name,
+              phone: newLeadData.phone,
+              email: newLeadData.email,
+              message: `[MANUAL ENTRY] ${newLeadData.notes} (${newLeadData.type})`
+          });
+          setIsAddingLead(false);
+          setNewLeadData({ name: '', phone: '', email: '', type: 'Contact', notes: '' });
+          loadData();
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setIsLoading(false);
+      }
   };
 
   // --- RENDER ---
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 font-sans">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4 py-8 font-sans relative">
+        <div className="w-full max-w-md mb-4 flex justify-start">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-[#1E63FF] bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-200 hover:border-blue-300 transition-all group"
+          >
+            <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform text-[#1E63FF]" />
+            <span>Back to Website</span>
+          </Link>
+        </div>
+
         <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-10 border border-gray-100">
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-50 text-[#1E63FF] mb-4">
@@ -353,6 +461,16 @@ const AdminPage: React.FC = () => {
                 <p className="text-xs text-gray-400">Demo Access: <span className="font-mono bg-gray-100 px-2 py-1 rounded">admin123</span></p>
             </div>
           </form>
+
+          <div className="mt-6 pt-5 border-t border-gray-100 text-center">
+            <Link 
+              to="/" 
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-[#1E63FF] transition-colors"
+            >
+              <ArrowLeft size={15} />
+              <span>Return to Public Website</span>
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -363,9 +481,22 @@ const AdminPage: React.FC = () => {
       {/* Top Navigation */}
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div className="container mx-auto px-4 h-16 flex justify-between items-center">
-            <div className="flex items-center gap-2 text-[#002B60]">
-                <LayoutDashboard size={24} className="text-[#1E63FF]" />
-                <span className="font-extrabold text-xl tracking-tight">DEALER<span className="font-light text-gray-400">HUB</span></span>
+            <div className="flex items-center gap-3 sm:gap-5">
+                <div className="flex items-center gap-2 text-[#002B60]">
+                    <LayoutDashboard size={24} className="text-[#1E63FF]" />
+                    <span className="font-extrabold text-xl tracking-tight">DEALER<span className="font-light text-gray-400">HUB</span></span>
+                </div>
+
+                <div className="h-6 w-px bg-gray-200 hidden sm:block"></div>
+
+                <Link
+                    to="/"
+                    className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-gray-700 hover:text-[#1E63FF] bg-gray-100 hover:bg-blue-50 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-blue-200 transition-all group"
+                    title="Return to public dealership website"
+                >
+                    <ArrowLeft size={15} className="text-[#1E63FF] group-hover:-translate-x-0.5 transition-transform" />
+                    <span>Back to Website</span>
+                </Link>
             </div>
             <div className="flex items-center gap-4">
                 <button onClick={handleResetData} className="text-xs text-gray-400 hover:text-red-500 flex items-center gap-1 transition-colors">
@@ -381,26 +512,53 @@ const AdminPage: React.FC = () => {
 
       {/* Sub-Navigation Tabs */}
       <div className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="container mx-auto px-4 flex gap-8">
-            <button 
-                onClick={() => setActiveTab('overview')}
-                className={`py-4 px-2 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${activeTab === 'overview' ? 'border-[#1E63FF] text-[#1E63FF]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
-            >
-                <BarChart3 size={18} /> Overview
-            </button>
-            <button 
-                onClick={() => setActiveTab('inventory')}
-                className={`py-4 px-2 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${activeTab === 'inventory' ? 'border-[#1E63FF] text-[#1E63FF]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
-            >
-                <Car size={18} /> Inventory <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{vehicles.length}</span>
-            </button>
-            <button 
-                onClick={() => setActiveTab('leads')}
-                className={`py-4 px-2 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${activeTab === 'leads' ? 'border-[#1E63FF] text-[#1E63FF]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
-            >
-                <Inbox size={18} /> Inbox 
-                {leads.length > 0 && <span className="bg-red-500 text-white px-2 py-0.5 rounded-full text-xs shadow-sm">{leads.length}</span>}
-            </button>
+        <div className="container mx-auto px-4 flex justify-between items-center">
+            <div className="flex gap-8">
+                <button 
+                    onClick={() => setActiveTab('overview')}
+                    className={`py-4 px-2 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${activeTab === 'overview' ? 'border-[#1E63FF] text-[#1E63FF]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
+                >
+                    <BarChart3 size={18} /> Overview
+                </button>
+                <button 
+                    onClick={() => setActiveTab('inventory')}
+                    className={`py-4 px-2 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${activeTab === 'inventory' ? 'border-[#1E63FF] text-[#1E63FF]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
+                >
+                    <Car size={18} /> Inventory <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{vehicles.length}</span>
+                </button>
+                <button 
+                    onClick={() => setActiveTab('leads')}
+                    className={`py-4 px-2 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${activeTab === 'leads' ? 'border-[#1E63FF] text-[#1E63FF]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
+                >
+                    <Users size={18} /> Leads & CRM 
+                    {newLeadsCount > 0 && <span className="bg-red-500 text-white px-2 py-0.5 rounded-full text-xs shadow-sm ml-1">{newLeadsCount} New</span>}
+                </button>
+            </div>
+            <div className="flex gap-2">
+                 <button 
+                    onClick={handleBackup} 
+                    className="flex items-center gap-2 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 px-3 py-2 rounded-lg border border-gray-200 transition-colors"
+                    title="Export Database to File"
+                >
+                    <Download size={14} /> Backup
+                </button>
+                <div className="relative">
+                     <button 
+                        onClick={() => backupInputRef.current?.click()} 
+                        className="flex items-center gap-2 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 px-3 py-2 rounded-lg border border-gray-200 transition-colors"
+                        title="Import Database from File"
+                    >
+                        <FileJson size={14} /> Restore
+                    </button>
+                    <input 
+                        ref={backupInputRef}
+                        type="file" 
+                        accept=".json"
+                        className="hidden"
+                        onChange={handleRestore}
+                    />
+                </div>
+            </div>
         </div>
       </div>
 
@@ -412,7 +570,7 @@ const AdminPage: React.FC = () => {
                 {/* KPI Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <StatCard 
-                        title="Inventory Value" 
+                        title="Available Inventory Value" 
                         value={`$${totalValue.toLocaleString()}`} 
                         icon={<DollarSign size={24} />} 
                         color="bg-[#1E63FF]"
@@ -429,13 +587,15 @@ const AdminPage: React.FC = () => {
                         value={totalLeads.toString()} 
                         icon={<Users size={24} />} 
                         color="bg-purple-500"
-                        trend="3 new today"
+                        trend={`${newLeadsCount} unread`}
+                        onClick={() => setActiveTab('leads')}
                     />
                      <StatCard 
-                        title="Vehicles in Stock" 
-                        value={vehicles.length.toString()} 
-                        icon={<Car size={24} />} 
+                        title="Sold Vehicles" 
+                        value={soldVehicles.toString()} 
+                        icon={<CheckCircle size={24} />} 
                         color="bg-orange-500"
+                        trend="Keep it up!"
                     />
                 </div>
 
@@ -454,13 +614,16 @@ const AdminPage: React.FC = () => {
                                             {lead.type === 'Test Drive' ? <Calendar size={18}/> : <MessageSquare size={18}/>}
                                         </div>
                                         <div>
-                                            <p className="font-semibold text-gray-900">{lead.customerName}</p>
+                                            <div className="flex items-center gap-2">
+                                                <p className="font-semibold text-gray-900">{lead.customerName}</p>
+                                                {lead.status === 'New' && <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">New</span>}
+                                            </div>
                                             <p className="text-xs text-gray-500">{lead.type} • {new Date(lead.dateSubmitted).toLocaleDateString()}</p>
                                         </div>
                                     </div>
                                     <div className="text-right">
                                         {lead.type === 'Test Drive' && <span className="text-xs font-medium text-[#1E63FF] block">{lead.vehicleName}</span>}
-                                        <button onClick={() => handleDeleteLead(lead.id)} className="text-xs text-gray-400 hover:text-red-500 mt-1">Archive</button>
+                                        <button onClick={() => setActiveTab('leads')} className="text-xs text-gray-400 hover:text-[#1E63FF] mt-1">Manage</button>
                                     </div>
                                 </div>
                             )) : (
@@ -477,13 +640,17 @@ const AdminPage: React.FC = () => {
                                  <span>Add New Vehicle</span>
                                  <Plus size={18} />
                              </button>
-                             <button onClick={() => window.open('/#/inventory', '_blank')} className="w-full flex items-center justify-between p-4 bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium">
-                                 <span>View Live Website</span>
-                                 <LayoutDashboard size={18} />
+                             <button onClick={() => { setActiveTab('leads'); setIsAddingLead(true); }} className="w-full flex items-center justify-between p-4 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors font-medium">
+                                 <span>Log Phone/Walk-In</span>
+                                 <UserPlus size={18} />
                              </button>
                              <button onClick={() => setActiveTab('leads')} className="w-full flex items-center justify-between p-4 bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium">
                                  <span>Check Unread Messages</span>
-                                 <div className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">{leads.length}</div>
+                                 {newLeadsCount > 0 ? (
+                                     <div className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">{newLeadsCount}</div>
+                                 ) : (
+                                     <div className="bg-gray-200 text-gray-500 text-xs rounded-full px-2 py-0.5">0</div>
+                                 )}
                              </button>
                          </div>
                          
@@ -581,6 +748,14 @@ const AdminPage: React.FC = () => {
                                     {Object.values(BodyStyle).map(style => (
                                     <option key={style} value={style}>{style}</option>
                                     ))}
+                                </select>
+                            </div>
+                             <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                                <select name="status" value={currentVehicle.status || 'Available'} onChange={handleInputChange} className="w-full p-3 border rounded-lg bg-white">
+                                    <option value="Available">Available</option>
+                                    <option value="Sale Pending">Sale Pending</option>
+                                    <option value="Sold">Sold</option>
                                 </select>
                             </div>
                         </div>
@@ -759,6 +934,9 @@ const AdminPage: React.FC = () => {
                                     <div>
                                     <div className="font-bold text-[#002B60] text-lg">{vehicle.year} {vehicle.make} {vehicle.model}</div>
                                     <div className="text-xs text-gray-500 font-mono mt-1">{vehicle.specs.vin || 'NO VIN'}</div>
+                                    <div className={`text-[10px] font-bold uppercase mt-1 inline-block px-2 py-0.5 rounded-full ${vehicle.status === 'Sold' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                        {vehicle.status || 'Available'}
+                                    </div>
                                     </div>
                                 </div>
                                 </td>
@@ -772,6 +950,13 @@ const AdminPage: React.FC = () => {
                                 </td>
                                 <td className="p-5 text-right">
                                 <div className="flex justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button
+                                        onClick={() => handleToggleSold(vehicle)}
+                                        className={`p-2 rounded-lg transition-colors text-xs font-bold border ${vehicle.status === 'Sold' ? 'text-green-600 border-green-200 hover:bg-green-50' : 'text-orange-500 border-orange-200 hover:bg-orange-50'}`}
+                                        title={vehicle.status === 'Sold' ? "Mark Available" : "Mark Sold"}
+                                    >
+                                        {vehicle.status === 'Sold' ? 'List' : 'Sold'}
+                                    </button>
                                     <button 
                                     onClick={() => handleEdit(vehicle)}
                                     className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
@@ -809,76 +994,179 @@ const AdminPage: React.FC = () => {
 
         {/* --- LEADS TAB --- */}
         {activeTab === 'leads' && (
-            <div className="animate-fade-in">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-gray-800">Inbox & Leads</h2>
-                    <div className="text-sm text-gray-500">Showing all active inquiries</div>
+            <div className="animate-fade-in space-y-8">
+                
+                {/* Manual Entry Modal/Section */}
+                {isAddingLead && (
+                    <div className="bg-white p-6 rounded-xl shadow-lg border border-purple-200 mb-8 animate-fade-in">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-purple-900 flex items-center gap-2"><UserPlus size={20}/> Add Walk-In / Phone Lead</h3>
+                            <button onClick={() => setIsAddingLead(false)} className="text-gray-400 hover:text-gray-700"><X size={20}/></button>
+                        </div>
+                        <form onSubmit={handleAddManualLead} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Customer Name</label>
+                                <input required value={newLeadData.name} onChange={(e) => setNewLeadData({...newLeadData, name: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="John Doe" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Phone Number</label>
+                                <input required value={newLeadData.phone} onChange={(e) => setNewLeadData({...newLeadData, phone: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="(555) 123-4567" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Interest / Notes</label>
+                                <input value={newLeadData.notes} onChange={(e) => setNewLeadData({...newLeadData, notes: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="Interested in F-150..." />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Lead Type</label>
+                                <select value={newLeadData.type} onChange={(e) => setNewLeadData({...newLeadData, type: e.target.value})} className="w-full p-2 border rounded-lg bg-white">
+                                    <option value="Contact">General Inquiry</option>
+                                    <option value="Test Drive">Test Drive Request</option>
+                                </select>
+                            </div>
+                            <Button type="submit" disabled={isLoading} className="w-full h-[42px] flex items-center justify-center">
+                                {isLoading ? <Loader2 className="animate-spin"/> : 'Save Lead'}
+                            </Button>
+                        </form>
+                    </div>
+                )}
+
+                {/* 1. Scheduled Test Drives Section */}
+                <div className="space-y-4">
+                    <h2 className="text-xl font-bold text-[#002B60] flex items-center gap-2">
+                        <Calendar className="text-purple-500" /> 
+                        Upcoming Appointments
+                        <span className="text-sm font-normal text-gray-500 ml-2">({testDrives.length})</span>
+                    </h2>
+                    
+                    {testDrives.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {testDrives.map(lead => (
+                                <div key={lead.id} className={`bg-white p-5 rounded-xl shadow-sm border hover:shadow-md transition-shadow relative overflow-hidden group ${lead.status === 'Confirmed' ? 'border-green-200' : 'border-purple-100'}`}>
+                                    <div className={`absolute top-0 left-0 w-1 h-full ${lead.status === 'Confirmed' ? 'bg-green-500' : 'bg-purple-500'}`}></div>
+                                    <div className="flex justify-between items-start mb-3">
+                                        <span className={`text-xs font-bold px-2 py-1 rounded uppercase tracking-wide ${lead.status === 'Confirmed' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>
+                                            {lead.status === 'Confirmed' ? 'Confirmed' : 'Test Drive Request'}
+                                        </span>
+                                        <button onClick={() => handleDeleteLead(lead.id)} className="text-gray-300 hover:text-red-500 transition-colors"><X size={16}/></button>
+                                    </div>
+                                    <h3 className="font-bold text-lg text-gray-900">{lead.customerName}</h3>
+                                    <p className="text-sm text-gray-500 mb-4">{lead.phone}</p>
+                                    
+                                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 mb-3">
+                                        <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Vehicle Interest</p>
+                                        <p className="text-[#1E63FF] font-medium text-sm truncate">{lead.vehicleName || 'General Interest'}</p>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2 text-gray-700 font-medium">
+                                        <Clock size={16} className={lead.status === 'Confirmed' ? 'text-green-500' : 'text-purple-500'}/>
+                                        {lead.requestedDate} @ {lead.requestedTime}
+                                    </div>
+                                    <div className="mt-4 pt-3 border-t border-gray-100 flex justify-end gap-2">
+                                        {lead.status !== 'Confirmed' && (
+                                            <button 
+                                                onClick={() => handleLeadStatusChange(lead, 'Confirmed')}
+                                                className="px-3 py-1 bg-green-500 text-white text-xs font-bold rounded-lg hover:bg-green-600 transition-colors flex items-center gap-1"
+                                            >
+                                                <Check size={12} /> Confirm Appt
+                                            </button>
+                                        )}
+                                        <a href={`tel:${lead.phone}`} className="px-3 py-1 border border-gray-300 text-gray-600 text-xs font-bold rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-1">
+                                            <PhoneCall size={12} /> Call
+                                        </a>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-8 text-center">
+                            <p className="text-gray-500 italic">No upcoming test drives scheduled.</p>
+                        </div>
+                    )}
                 </div>
 
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50 border-b border-gray-200">
-                                <tr>
-                                    <th className="p-5 font-semibold text-gray-600 text-sm uppercase tracking-wider">Status</th>
-                                    <th className="p-5 font-semibold text-gray-600 text-sm uppercase tracking-wider">Customer</th>
-                                    <th className="p-5 font-semibold text-gray-600 text-sm uppercase tracking-wider">Inquiry Details</th>
-                                    <th className="p-5 font-semibold text-gray-600 text-sm uppercase tracking-wider text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {leads.map(lead => (
-                                    <tr key={lead.id} className="hover:bg-blue-50/50 transition-colors">
-                                        <td className="p-5">
-                                            <div className="flex flex-col gap-2">
-                                                 <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border ${lead.type === 'Test Drive' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                                                    {lead.type === 'Test Drive' ? <Calendar size={12} /> : <MessageSquare size={12} />}
-                                                    {lead.type}
-                                                </span>
-                                                <span className="text-xs text-gray-400 pl-1">{new Date(lead.dateSubmitted).toLocaleDateString()}</span>
-                                            </div>
-                                        </td>
-                                        <td className="p-5">
-                                            <div className="font-bold text-[#002B60] text-lg">{lead.customerName}</div>
-                                            <div className="text-sm text-gray-500 mt-1">{lead.email}</div>
-                                            <div className="text-sm text-gray-500">{lead.phone}</div>
-                                        </td>
-                                        <td className="p-5">
-                                            {lead.type === 'Test Drive' ? (
-                                                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 inline-block min-w-[200px]">
-                                                    <p className="font-bold text-[#1E63FF] text-sm mb-1">{lead.vehicleName}</p>
-                                                    <p className="text-xs text-gray-600 flex items-center gap-1"><Clock size={12}/> {lead.requestedDate} @ {lead.requestedTime}</p>
-                                                </div>
-                                            ) : (
-                                                <div className="max-w-md bg-gray-50 p-3 rounded-lg border border-gray-200 italic text-gray-700 text-sm">
-                                                    "{lead.message}"
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td className="p-5 text-right">
-                                            <button 
-                                                onClick={() => handleDeleteLead(lead.id)}
-                                                className="px-4 py-2 bg-white border border-gray-300 text-gray-600 hover:text-green-600 hover:border-green-500 hover:bg-green-50 rounded-lg transition-all flex items-center gap-2 ml-auto shadow-sm"
-                                                title="Mark as Done / Archive"
-                                            >
-                                                <Check size={16} /> Mark Done
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {leads.length === 0 && (
+                <hr className="border-gray-200" />
+
+                {/* 2. General Inquiries Section */}
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold text-[#002B60] flex items-center gap-2">
+                            <Inbox className="text-green-500" /> 
+                            All Leads & Inquiries
+                            <span className="text-sm font-normal text-gray-500 ml-2">({inquiries.length})</span>
+                        </h2>
+                        <Button onClick={() => setIsAddingLead(true)} className="px-4 py-2 text-xs flex items-center" variant="secondary">
+                            <UserPlus size={16} className="mr-2" /> Add Manual Lead
+                        </Button>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-gray-50 border-b border-gray-200">
                                     <tr>
-                                        <td colSpan={4} className="p-20 text-center text-gray-400">
-                                            <div className="inline-flex items-center justify-center w-20 h-20 bg-gray-50 rounded-full mb-4">
-                                                <Inbox size={40} className="text-gray-300"/>
-                                            </div>
-                                            <p className="text-lg font-medium text-gray-600">All caught up!</p>
-                                            <p className="text-sm">No active leads in your inbox.</p>
-                                        </td>
+                                        <th className="p-5 font-semibold text-gray-600 text-sm uppercase tracking-wider">Type</th>
+                                        <th className="p-5 font-semibold text-gray-600 text-sm uppercase tracking-wider">Customer</th>
+                                        <th className="p-5 font-semibold text-gray-600 text-sm uppercase tracking-wider">Message / Details</th>
+                                        <th className="p-5 font-semibold text-gray-600 text-sm uppercase tracking-wider text-right">Actions</th>
                                     </tr>
-                                )}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {inquiries.map(lead => (
+                                        <tr key={lead.id} className={`hover:bg-blue-50/50 transition-colors ${lead.status === 'New' ? 'bg-blue-50/30' : ''}`}>
+                                            <td className="p-5">
+                                                <div className="flex flex-col gap-1">
+                                                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold w-fit ${lead.type === 'Newsletter' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                                                        {lead.type === 'Newsletter' ? <Mail size={12}/> : <MessageSquare size={12}/>}
+                                                        {lead.type}
+                                                    </span>
+                                                    <span className="text-xs text-gray-400">{new Date(lead.dateSubmitted).toLocaleDateString()}</span>
+                                                </div>
+                                            </td>
+                                            <td className="p-5">
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`font-bold text-[#002B60] ${lead.status === 'New' ? 'text-black' : ''}`}>{lead.customerName}</div>
+                                                    {lead.status === 'New' && <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full animate-pulse">New</span>}
+                                                </div>
+                                                <div className="text-xs text-gray-500">{lead.email}</div>
+                                                {lead.phone && <div className="text-xs text-gray-500">{lead.phone}</div>}
+                                            </td>
+                                            <td className="p-5">
+                                                <div className={`max-w-md text-sm ${lead.status === 'New' ? 'text-gray-800 font-medium' : 'text-gray-600 italic'}`}>
+                                                    "{lead.message || 'No message provided.'}"
+                                                </div>
+                                            </td>
+                                            <td className="p-5 text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    {lead.status === 'New' && (
+                                                        <button 
+                                                            onClick={() => handleLeadStatusChange(lead, 'Contacted')}
+                                                            className="px-3 py-1 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg transition-all inline-flex items-center gap-1 shadow-sm text-xs font-bold"
+                                                            title="Mark as Read"
+                                                        >
+                                                            Mark Read
+                                                        </button>
+                                                    )}
+                                                    <button 
+                                                        onClick={() => handleDeleteLead(lead.id)}
+                                                        className="px-3 py-1 bg-white border border-gray-300 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all inline-flex items-center gap-1 shadow-sm text-xs"
+                                                        title="Archive"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {inquiries.length === 0 && (
+                                        <tr>
+                                            <td colSpan={4} className="p-12 text-center text-gray-400">
+                                                No new inquiries.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>

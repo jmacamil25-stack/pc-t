@@ -8,7 +8,7 @@ import VehicleCard from '../VehicleCard';
 import Button from '../ui/Button';
 import TrustBadge from '../ui/TrustBadge';
 import Logo from '../ui/Logo';
-import { Award, CheckCircle, Handshake, Sparkles, Search, Loader2, Star, Quote, ArrowRight } from 'lucide-react';
+import { Award, CheckCircle, Handshake, Sparkles, Search, Loader2, Star, Quote, ArrowRight, Mail } from 'lucide-react';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -19,6 +19,10 @@ const HomePage: React.FC = () => {
   const [isAiSearching, setIsAiSearching] = useState(false);
   const [aiResults, setAiResults] = useState<Vehicle[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+
+  const [email, setEmail] = useState('');
+  const [isSubscribing, setIsSubscribing] = useState(false);
+  const [subscribed, setSubscribed] = useState(false);
 
   useEffect(() => {
     // SEO: Update Page Title dynamically for better crawling
@@ -118,6 +122,21 @@ const HomePage: React.FC = () => {
   const handleAiSearch = (e: React.FormEvent) => {
     e.preventDefault();
     performSearch(aiQuery);
+  };
+
+  const handleSubscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if(!email) return;
+    setIsSubscribing(true);
+    try {
+        await api.submitNewsletter(email);
+        setSubscribed(true);
+        setEmail('');
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setIsSubscribing(false);
+    }
   };
 
   return (
@@ -347,6 +366,59 @@ const HomePage: React.FC = () => {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* LEAD CAPTURE SECTION */}
+      <section className="py-20 bg-[#002B60] relative overflow-hidden">
+        {/* Background Elements */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-[#1E63FF] rounded-full mix-blend-multiply filter blur-3xl opacity-20 translate-x-1/2 -translate-y-1/2"></div>
+        <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#1E63FF] rounded-full mix-blend-multiply filter blur-3xl opacity-20 -translate-x-1/2 translate-y-1/2"></div>
+
+        <div className="container mx-auto px-4 relative z-10">
+            <div className="max-w-4xl mx-auto bg-white/5 backdrop-blur-lg rounded-2xl p-8 md:p-12 border border-white/10 shadow-2xl flex flex-col md:flex-row items-center gap-12">
+                <div className="flex-1 text-center md:text-left">
+                    <span className="inline-block py-1 px-3 rounded-full bg-[#1E63FF] text-white text-xs font-bold uppercase tracking-wider mb-4 animate-pulse">VIP Access</span>
+                    <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-4">Don't Miss the Next Deal</h2>
+                    <p className="text-blue-100 text-lg">Join our exclusive VIP list to get notified about new inventory, price drops, and special financing offers before they hit the public site.</p>
+                </div>
+                <div className="flex-1 w-full">
+                    {subscribed ? (
+                        <div className="bg-green-500/20 border border-green-500/50 rounded-xl p-6 text-center animate-pop-in">
+                            <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-2" />
+                            <h3 className="text-white font-bold text-xl">You're In!</h3>
+                            <p className="text-green-100">Watch your inbox for exclusive updates.</p>
+                        </div>
+                    ) : (
+                        <form onSubmit={handleSubscribe} className="space-y-4">
+                            <div>
+                                <label htmlFor="email-subscribe" className="sr-only">Email Address</label>
+                                <div className="relative">
+                                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                                    <input 
+                                        type="email" 
+                                        id="email-subscribe"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        placeholder="Enter your email address"
+                                        required
+                                        className="w-full pl-12 pr-4 py-4 rounded-xl bg-white/10 border border-white/20 text-white placeholder-blue-200/50 focus:outline-none focus:ring-2 focus:ring-[#1E63FF] focus:bg-white/20 transition-all"
+                                    />
+                                </div>
+                            </div>
+                            <Button 
+                                type="submit" 
+                                variant="primary" 
+                                className="w-full py-4 text-lg shadow-xl hover:shadow-2xl hover:scale-[1.02]"
+                                disabled={isSubscribing}
+                            >
+                                {isSubscribing ? <Loader2 className="animate-spin w-6 h-6 mx-auto"/> : "Join VIP List"}
+                            </Button>
+                            <p className="text-xs text-blue-300 text-center">No spam. Unsubscribe anytime.</p>
+                        </form>
+                    )}
+                </div>
+            </div>
         </div>
       </section>
     </div>

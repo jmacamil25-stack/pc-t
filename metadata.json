@@ -1,5 +1,6 @@
 {
-  "name": "Copy of Pacific Cars and Trucks",
+  "name": "Pacific Cars and Trucks",
   "description": "A professional website for a used-car dealership, featuring inventory browsing, filtering, vehicle details, and financing application forms. Built with a clean, modern, and trustworthy design.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": []
 }

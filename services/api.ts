@@ -103,118 +103,134 @@ export const api = {
       const result = data.Results[0];
 
       if (!result) throw new Error("Invalid VIN");
+      
+      // Check for error code from API
+      if (result.ErrorCode && result.ErrorCode !== "0") {
+          throw new Error(result.ErrorText || "VIN not found in NHTSA database.");
+      }
+
+      // Ensure we have at least a make or model
+      if (!result.Make && !result.Model) {
+          throw new Error("VIN decoded successfully but returned no vehicle data.");
+      }
 
       // Map Body Style
       let bodyStyle = BodyStyle.SEDAN; // Default
       const bodyClass = (result.BodyClass || '').toLowerCase();
-      if (bodyClass.includes('sport utility') || bodyClass.includes('suv') || bodyClass.includes('crossover')) bodyStyle = BodyStyle.SUV;
+      if (bodyClass.includes('sport utility') || bodyClass.includes('suv')) bodyStyle = BodyStyle.SUV;
       else if (bodyClass.includes('pickup') || bodyClass.includes('truck')) bodyStyle = BodyStyle.TRUCK;
       else if (bodyClass.includes('coupe')) bodyStyle = BodyStyle.COUPE;
       else if (bodyClass.includes('hatchback')) bodyStyle = BodyStyle.HATCHBACK;
-      else if (bodyClass.includes('sedan')) bodyStyle = BodyStyle.SEDAN;
 
       // Construct Engine String
-      let engine = '';
-      if (result.DisplacementL) engine += `${result.DisplacementL}L`;
-      if (result.EngineCylinders) engine += ` ${result.EngineConfiguration || 'V'}${result.EngineCylinders}`;
+      const engineParts = [
+          result.DisplacementL ? `${result.DisplacementL}L` : null,
+          result.EngineCylinders ? `${result.EngineCylinders}-Cyl` : null,
+          result.FuelTypePrimary !== 'Gasoline' ? result.FuelTypePrimary : null
+      ].filter(Boolean);
 
       return {
         make: result.Make || '',
         model: result.Model || '',
-        year: parseInt(result.ModelYear) || new Date().getFullYear(),
+        year: result.ModelYear ? parseInt(result.ModelYear) : new Date().getFullYear(),
         bodyStyle: bodyStyle,
         specs: {
-          engine: engine.trim(),
-          drivetrain: result.DriveType || '',
-          transmission: result.TransmissionStyle || '',
-          trim: result.Trim || '',
-          vin: vin,
-          // Added missing properties exteriorColor and interiorColor
-          exteriorColor: '',
-          interiorColor: '',
-          horsepower: parseInt(result.EngineHP) || 0
+            engine: engineParts.join(' ') || 'N/A',
+            drivetrain: result.DriveType || 'FWD',
+            transmission: result.TransmissionStyle || 'Automatic',
+            trim: result.Trim || '',
+            vin: vin,
+            exteriorColor: '', // API doesn't provide color
+            interiorColor: '',
+            horsepower: result.EngineHP ? parseInt(result.EngineHP) : 0
         }
       };
-    } catch (e) {
-      console.error("VIN Decode Error", e);
-      throw e;
+    } catch (error) {
+      console.error("VIN Decode Error:", error);
+      throw error;
     }
   },
 
-  // --- LEAD OPERATIONS (CMS) ---
+  // --- LEAD GENERATION ---
 
-  /**
-   * Fetch all leads for the admin dashboard
-   */
   getLeads: async (): Promise<Lead[]> => {
-    await new Promise(resolve => setTimeout(resolve, 400));
+    await new Promise(resolve => setTimeout(resolve, 300));
     return getLeadsData().sort((a, b) => new Date(b.dateSubmitted).getTime() - new Date(a.dateSubmitted).getTime());
   },
 
-  /**
-   * Delete a lead
-   */
-  deleteLead: async (id: number): Promise<boolean> => {
-    await new Promise(resolve => setTimeout(resolve, 400));
+  submitContactForm: async (data: ContactFormData): Promise<boolean> => {
+    await new Promise(resolve => setTimeout(resolve, 800));
     const leads = getLeadsData();
-    const updatedLeads = leads.filter(l => l.id !== id);
-    localStorage.setItem(LEADS_KEY, JSON.stringify(updatedLeads));
+    const newLead: Lead = {
+        id: Date.now(),
+        type: 'Contact',
+        customerName: data.name,
+        email: data.email,
+        phone: data.phone,
+        message: data.message,
+        dateSubmitted: new Date().toISOString(),
+        status: 'New'
+    };
+    localStorage.setItem(LEADS_KEY, JSON.stringify([...leads, newLead]));
     return true;
   },
 
-  /**
-   * Simulates submitting a contact form -> Saves to Leads
-   */
-  submitContactForm: async (data: ContactFormData): Promise<{ success: boolean }> => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
+  submitTestDrive: async (data: TestDriveData): Promise<boolean> => {
+    await new Promise(resolve => setTimeout(resolve, 800));
     const leads = getLeadsData();
-    const newId = leads.length > 0 ? Math.max(...leads.map(l => l.id)) + 1 : 1;
     
-    const newLead: Lead = {
-      id: newId,
-      type: 'Contact',
-      customerName: data.name,
-      email: data.email,
-      phone: data.phone,
-      message: data.message,
-      dateSubmitted: new Date().toISOString(),
-      status: 'New'
-    };
-
-    localStorage.setItem(LEADS_KEY, JSON.stringify([...leads, newLead]));
-    return { success: true };
-  },
-
-  /**
-   * Simulates submitting a test drive request -> Saves to Leads
-   */
-  submitTestDrive: async (data: TestDriveData): Promise<{ success: boolean }> => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Get vehicle details for context
+    // Fetch vehicle name for context
     const vehicles = initializeData();
     const vehicle = vehicles.find((v: Vehicle) => v.id === data.vehicleId);
     const vehicleName = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : 'Unknown Vehicle';
 
-    const leads = getLeadsData();
-    const newId = leads.length > 0 ? Math.max(...leads.map(l => l.id)) + 1 : 1;
-
     const newLead: Lead = {
-      id: newId,
-      type: 'Test Drive',
-      customerName: data.customerName,
-      email: data.email,
-      phone: data.phone,
-      vehicleId: data.vehicleId,
-      vehicleName: vehicleName,
-      requestedDate: data.date,
-      requestedTime: data.time,
-      dateSubmitted: new Date().toISOString(),
-      status: 'New'
+        id: Date.now(),
+        type: 'Test Drive',
+        customerName: data.customerName,
+        email: data.email,
+        phone: data.phone,
+        vehicleId: data.vehicleId,
+        vehicleName: vehicleName,
+        requestedDate: data.date,
+        requestedTime: data.time,
+        dateSubmitted: new Date().toISOString(),
+        status: 'New'
     };
-
     localStorage.setItem(LEADS_KEY, JSON.stringify([...leads, newLead]));
-    return { success: true };
+    return true;
+  },
+
+  submitNewsletter: async (email: string): Promise<boolean> => {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const leads = getLeadsData();
+      const newLead: Lead = {
+          id: Date.now(),
+          type: 'Newsletter',
+          customerName: 'Subscriber',
+          email: email,
+          phone: '',
+          message: 'Joined VIP List via Homepage',
+          dateSubmitted: new Date().toISOString(),
+          status: 'New'
+      };
+      localStorage.setItem(LEADS_KEY, JSON.stringify([...leads, newLead]));
+      return true;
+  },
+
+  updateLead: async (lead: Lead): Promise<Lead> => {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const leads = getLeadsData();
+      const updatedLeads = leads.map(l => l.id === lead.id ? lead : l);
+      localStorage.setItem(LEADS_KEY, JSON.stringify(updatedLeads));
+      return lead;
+  },
+
+  deleteLead: async (id: number): Promise<boolean> => {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const leads = getLeadsData();
+      const updatedLeads = leads.filter(l => l.id !== id);
+      localStorage.setItem(LEADS_KEY, JSON.stringify(updatedLeads));
+      return true;
   }
 };
